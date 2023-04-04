@@ -59,11 +59,13 @@ def jaccard(box_a, box_b):
     Return:
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
+    # 计算每个目标框a与每个先验框b之间的交集的面积大小
     inter = intersect(box_a, box_b)
     area_a = ((box_a[:, 2]-box_a[:, 0]) *
               (box_a[:, 3]-box_a[:, 1])).unsqueeze(1).expand_as(inter)  # [A,B]
     area_b = ((box_b[:, 2]-box_b[:, 0]) *
               (box_b[:, 3]-box_b[:, 1])).unsqueeze(0).expand_as(inter)  # [A,B]
+    # 同上，计算并集
     union = area_a + area_b - inter
     return inter / union  # [A,B]
 
@@ -91,22 +93,31 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
         point_form(priors)
     )
     # (Bipartite Matching)
-    # [1,num_objects] best prior for each ground truth
+    # [1,num_objects] the best prior for each ground truth
     best_prior_overlap, best_prior_idx = overlaps.max(1, keepdim=True)
-    # [1,num_priors] best ground truth for each prior
+    # [1,num_priors] the best ground truth for each prior
     best_truth_overlap, best_truth_idx = overlaps.max(0, keepdim=True)
+
+    # squeeze shape
     best_truth_idx.squeeze_(0)
     best_truth_overlap.squeeze_(0)
     best_prior_idx.squeeze_(1)
     best_prior_overlap.squeeze_(1)
+
+    # 保证每个ground truth box 与某一个prior box 匹配，固定值为 2 > threshold
     best_truth_overlap.index_fill_(0, best_prior_idx, 2)  # ensure best prior
-    # TODO refactor: index  best_prior_idx with long tensor
-    # ensure every gt matches with its prior of max overlap
+    # 保证每一个ground truth 匹配它的都是具有最大IOU的prior
     for j in range(best_prior_idx.size(0)):
         best_truth_idx[best_prior_idx[j]] = j
+
+    # 提取出所有匹配的ground truth box, Shape: [M,4]
     matches = truths[best_truth_idx]          # Shape: [num_priors,4]
+    # 提取出所有GT框的类别， Shape:[M]
     conf = labels[best_truth_idx] + 1         # Shape: [num_priors]
+    # 把 iou < threshold 的框类别设置为 bg,即为0
     conf[best_truth_overlap < threshold] = 0  # label as background
+
+    # 保存匹配好的loc(需要编码)和conf到loc_t和conf_t中
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc    # [num_priors,4] encoded offsets to learn
     conf_t[idx] = conf  # [num_priors] top class label for each prior
@@ -184,6 +195,7 @@ def nms(boxes, scores, overlap=0.5, top_k=200):
         The indices of the kept boxes with respect to num_priors.
     """
 
+    # TODO: 修改算法测试
     keep = scores.new(scores.size(0)).zero_().long()
     if boxes.numel() == 0:
         return keep

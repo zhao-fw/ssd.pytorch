@@ -85,17 +85,21 @@ class SSD(nn.Module):
 
         # apply extra layers and cache source layer outputs
         for k, v in enumerate(self.extras):
+            # 执行了v(x)，后执行relu激活函数
             x = F.relu(v(x), inplace=True)
             if k % 2 == 1:
                 sources.append(x)
 
         # apply multibox head to source layers
         for (x, l, c) in zip(sources, self.loc, self.conf):
+            # permute是维度转换，contiguous类似理解为深拷贝（浅拷贝为数据不变，改变了解释方式）
             loc.append(l(x).permute(0, 2, 3, 1).contiguous())
             conf.append(c(x).permute(0, 2, 3, 1).contiguous())
 
+        # view函数改变tensor的维度个数等，-1指的是自动补全；size(0)获取tensor的第一维的信息
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
+
         if self.phase == "test":
             output = self.detect(
                 loc.view(loc.size(0), -1, 4),                   # loc preds
@@ -105,8 +109,11 @@ class SSD(nn.Module):
             )
         else:
             output = (
+                # loc的输出，size:(batch, 8732, 4)
                 loc.view(loc.size(0), -1, 4),
+                # conf的输出，size:(batch, 8732, 21)
                 conf.view(conf.size(0), -1, self.num_classes),
+                # 生成所有的候选框 size([8732, 4])
                 self.priors
             )
         return output
@@ -124,7 +131,7 @@ class SSD(nn.Module):
 
 # This function is derived from torchvision VGG make_layers()
 # https://github.com/pytorch/vision/blob/master/torchvision/models/vgg.py
-def vgg(cfg, i, batch_norm=False):
+def create_vgg(cfg, i, batch_norm=False):
     layers = []
     in_channels = i
     for v in cfg:
@@ -204,7 +211,17 @@ def build_ssd(phase, size=300, num_classes=21):
         print("ERROR: You specified size " + repr(size) + ". However, " +
               "currently only SSD300 (size=300) is supported!")
         return
-    base_, extras_, head_ = multibox(vgg(base[str(size)], 3),
+    base_, extras_, head_ = multibox(create_vgg(base[str(size)], 3),
                                      add_extras(extras[str(size)], 1024),
                                      mbox[str(size)], num_classes)
     return SSD(phase, size, base_, extras_, head_, num_classes)
+
+
+# 调试函数
+if __name__ == '__main__':
+    ssd = build_ssd('train')
+    x = torch.randn(1, 3, 300, 300)
+    y = ssd(x)
+    print("Loc    shape: ", y[0].shape)
+    print("Conf   shape: ", y[1].shape)
+    print("Priors shape: ", y[2].shape)

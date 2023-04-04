@@ -27,8 +27,11 @@ class PriorBox(object):
 
     def forward(self):
         mean = []
+        # 遍历多尺度的feature map: [38, 19, 10, 5, 3, 1]
         for k, f in enumerate(self.feature_maps):
+            # 遍历每个cell
             for i, j in product(range(f), repeat=2):
+                # k-th 层 feature map相对比例，step: [8, 16, 32, 64, 100, 300]，取近似值
                 f_k = self.image_size / self.steps[k]
                 # unit center x,y
                 cx = (j + 0.5) / f_k
@@ -53,3 +56,28 @@ class PriorBox(object):
         if self.clip:
             output.clamp_(max=1, min=0)
         return output
+
+
+# 调试代码
+if __name__ == "__main__":
+    # SSD300 CONFIGS
+    voc = {
+        'num_classes': 21,
+        'lr_steps': (80000, 100000, 120000),
+        # 'max_iter': 120000,
+        'max_iter': 500,
+        'feature_maps': [38, 19, 10, 5, 3, 1],
+        'min_dim': 300,
+        'steps': [8, 16, 32, 64, 100, 300],
+        'min_sizes': [30, 60, 111, 162, 213, 264],
+        'max_sizes': [60, 111, 162, 213, 264, 315],
+        # 长宽比
+        'aspect_ratios': [[2], [2, 3], [2, 3], [2, 3], [2], [2]],
+        # 方差
+        'variance': [0.1, 0.2],
+        'clip': True,
+        'name': 'VOC',
+    }
+    box = PriorBox(voc)
+    print('Priors box shape:', box.forward().shape)
+    print('Priors box:\n',box.forward())

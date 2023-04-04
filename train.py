@@ -69,6 +69,7 @@ if not os.path.exists(args.save_folder):
 
 
 def train():
+    # 数据集
     if args.dataset == 'COCO':
         if args.dataset_root == VOC_ROOT:
             if not os.path.exists(COCO_ROOT):
@@ -88,17 +89,17 @@ def train():
                                transform=SSDAugmentation(cfg['min_dim'],
                                                          MEANS))
 
-    if args.visdom:
-        import visdom
-        viz = visdom.Visdom()
-
+    # 网络
     ssd_net = build_ssd('train', cfg['min_dim'], cfg['num_classes'])
     net = ssd_net
 
+    # 参数
+    if args.visdom:
+        import visdom
+        viz = visdom.Visdom()
     if args.cuda:
         net = torch.nn.DataParallel(ssd_net)
         cudnn.benchmark = True
-
     if args.resume:
         print('Resuming training, loading {}...'.format(args.resume))
         ssd_net.load_weights(args.resume)
@@ -106,10 +107,8 @@ def train():
         vgg_weights = torch.load(args.save_folder + args.basenet)
         print('Loading base network...')
         ssd_net.vgg.load_state_dict(vgg_weights)
-
     if args.cuda:
         net = net.cuda()
-
     if not args.resume:
         print('Initializing weights...')
         # initialize newly added layers' weights with xavier method
@@ -117,8 +116,10 @@ def train():
         ssd_net.loc.apply(weights_init)
         ssd_net.conf.apply(weights_init)
 
+    # 优化器，更新参数
     optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=args.momentum,
                           weight_decay=args.weight_decay)
+    # 多尺度损失函数
     criterion = MultiBoxLoss(cfg['num_classes'], 0.5, True, 0, True, 3, 0.5,
                              False, args.cuda)
 
@@ -149,6 +150,8 @@ def train():
     # create batch iterator
     batch_iterator = iter(data_loader)
     for iteration in range(args.start_iter, cfg['max_iter']):
+
+        # 可视化
         if args.visdom and iteration != 0 and (iteration % epoch_size == 0):
             update_vis_plot(epoch, loc_loss, conf_loss, epoch_plot, None,
                             'append', epoch_size)
@@ -157,18 +160,18 @@ def train():
             conf_loss = 0
             epoch += 1
 
+        # 在某些时间段修改学习率
         if iteration in cfg['lr_steps']:
             step_index += 1
             adjust_learning_rate(optimizer, args.gamma, step_index)
 
-        # load train data
-        # images, targets = next(batch_iterator)
+        # 获取一次batch的数据
         try:
             images, targets = next(batch_iterator)
         except StopIteration:
             batch_iterator = iter(data_loader)
             images, targets = next(batch_iterator)
-
+        # 是否GPU
         if args.cuda:
             images = Variable(images.cuda())
             with torch.no_grad():
@@ -177,6 +180,7 @@ def train():
             images = Variable(images)
             with torch.no_grad():
                 targets = [Variable(ann) for ann in targets]
+
         # forward
         t0 = time.time()
         out = net(images)
@@ -186,18 +190,21 @@ def train():
         loss = loss_l + loss_c
         loss.backward()
         optimizer.step()
+
+        # 时间
         t1 = time.time()
         loc_loss += loss_l.item()
         conf_loss += loss_c.item()
 
+        # 打印输出
         if iteration % 10 == 0:
             print('timer: %.4f sec.' % (t1 - t0))
             print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
-
+        # 可视化
         if args.visdom:
             update_vis_plot(iteration, loss_l.data[0], loss_c.data[0],
                             iter_plot, epoch_plot, 'append')
-
+        # 暂存模型
         if iteration != 0 and iteration % 5000 == 0:
             print('Saving state, iter:', iteration)
             torch.save(ssd_net.state_dict(), 'weights/ssd300_COCO_' +
@@ -219,8 +226,6 @@ def adjust_learning_rate(optimizer, gamma, step):
 
 
 def xavier(param):
-    # init.xavier_uniform(param)
-    # 修改
     init.xavier_uniform_(param)
 
 
