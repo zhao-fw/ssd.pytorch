@@ -142,54 +142,6 @@ def get_voc_results_file_template(image_set, cls):
     return path
 
 
-def write_voc_results_file(all_boxes, dataset):
-    for cls_ind, cls in enumerate(labelmap):
-        print('Writing {:s} VOC results file'.format(cls))
-        filename = get_voc_results_file_template(set_type, cls)
-        with open(filename, 'wt') as f:
-            for im_ind, index in enumerate(dataset.ids):
-                dets = all_boxes[cls_ind+1][im_ind]
-                if dets == []:
-                    continue
-                # the VOCdevkit expects 1-based indices
-                for k in range(dets.shape[0]):
-                    f.write('{:s} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
-                            format(index[1], dets[k, -1],
-                                   dets[k, 0] + 1, dets[k, 1] + 1,
-                                   dets[k, 2] + 1, dets[k, 3] + 1))
-
-
-def do_python_eval(output_dir='output', use_07=True):
-    cachedir = os.path.join(devkit_path, 'annotations_cache')
-    aps = []
-    # The PASCAL VOC metric changed in 2010
-    use_07_metric = use_07
-    print('VOC07 metric? ' + ('Yes' if use_07_metric else 'No'))
-    if not os.path.isdir(output_dir):
-        os.mkdir(output_dir)
-    for i, cls in enumerate(labelmap):
-        filename = get_voc_results_file_template(set_type, cls)
-        rec, prec, ap = voc_eval(
-           filename, annopath, imgsetpath.format(set_type), cls, cachedir,
-           ovthresh=0.5, use_07_metric=use_07_metric)
-        aps += [ap]
-        print('AP for {} = {:.4f}'.format(cls, ap))
-        with open(os.path.join(output_dir, cls + '_pr.pkl'), 'wb') as f:
-            pickle.dump({'rec': rec, 'prec': prec, 'ap': ap}, f)
-    print('Mean AP = {:.4f}'.format(np.mean(aps)))
-    print('~~~~~~~~')
-    print('Results:')
-    for ap in aps:
-        print('{:.3f}'.format(ap))
-    print('{:.3f}'.format(np.mean(aps)))
-    print('~~~~~~~~')
-    print('')
-    print('--------------------------------------------------------------')
-    print('Results computed with the **unofficial** Python eval code.')
-    print('Results should be very close to the official MATLAB eval code.')
-    print('--------------------------------------------------------------')
-
-
 def voc_ap(rec, prec, use_07_metric=True):
     """ ap = voc_ap(rec, prec, [use_07_metric])
     Compute VOC AP given precision and recall.
@@ -237,23 +189,23 @@ def voc_eval(detpath,
                            classname,
                            [ovthresh],
                            [use_07_metric])
-Top level function that does the PASCAL VOC evaluation.
-detpath: Path to detections
-   detpath.format(classname) should produce the detection results file.
-annopath: Path to annotations
-   annopath.format(imagename) should be the xml annotations file.
-imagesetfile: Text file containing the list of images, one image per line.
-classname: Category name (duh)
-cachedir: Directory for caching the annotations
-[ovthresh]: Overlap threshold (default = 0.5)
-[use_07_metric]: Whether to use VOC07's 11 point AP computation
-   (default True)
-"""
-# assumes detections are in detpath.format(classname)
-# assumes annotations are in annopath.format(imagename)
-# assumes imagesetfile is a text file with each line an image name
-# cachedir caches the annotations in a pickle file
-# first load gt
+    Top level function that does the PASCAL VOC evaluation.
+        detpath: Path to detections
+            detpath.format(classname) should produce the detection results file.
+        annopath: Path to annotations
+            annopath.format(imagename) should be the xml annotations file.
+        imagesetfile: Text file containing the list of images, one image per line.
+        classname: Category name (duh)
+        cachedir: Directory for caching the annotations
+        [ovthresh]: Overlap threshold (default = 0.5)
+        [use_07_metric]: Whether to use VOC07's 11 point AP computation
+           (default True)
+    """
+    # assumes detections are in detpath.format(classname)
+    # assumes annotations are in annopath.format(imagename)
+    # assumes imagesetfile is a text file with each line an image name
+    # cachedir caches the annotations in a pickle file
+    # first load gt
     if not os.path.isdir(cachedir):
         os.mkdir(cachedir)
     cachefile = os.path.join(cachedir, 'annots.pkl')
@@ -360,6 +312,61 @@ cachedir: Directory for caching the annotations
     return rec, prec, ap
 
 
+def do_python_eval(output_dir='output', use_07=True):
+    cachedir = os.path.join(devkit_path, 'annotations_cache')
+    aps = []
+    # The PASCAL VOC metric changed in 2010
+    use_07_metric = use_07
+    print('VOC07 metric? ' + ('Yes' if use_07_metric else 'No'))
+    if not os.path.isdir(output_dir):
+        os.mkdir(output_dir)
+    for i, cls in enumerate(labelmap):
+        filename = get_voc_results_file_template(set_type, cls)
+        rec, prec, ap = voc_eval(
+           filename, annopath, imgsetpath.format(set_type), cls, cachedir,
+           ovthresh=0.5, use_07_metric=use_07_metric)
+        aps += [ap]
+        print('AP for {} = {:.4f}'.format(cls, ap))
+        with open(os.path.join(output_dir, cls + '_pr.pkl'), 'wb') as f:
+            pickle.dump({'rec': rec, 'prec': prec, 'ap': ap}, f)
+    print('Mean AP = {:.4f}'.format(np.mean(aps)))
+    print('~~~~~~~~')
+    print('Results:')
+    for ap in aps:
+        print('{:.3f}'.format(ap))
+    print('{:.3f}'.format(np.mean(aps)))
+    print('~~~~~~~~')
+    print('')
+    print('--------------------------------------------------------------')
+    print('Results computed with the **unofficial** Python eval code.')
+    print('Results should be very close to the official MATLAB eval code.')
+    print('--------------------------------------------------------------')
+
+
+def write_voc_results_file(all_boxes, dataset):
+    for cls_ind, cls in enumerate(labelmap):
+        print('Writing {:s} VOC results file'.format(cls))
+        filename = get_voc_results_file_template(set_type, cls)
+        with open(filename, 'wt') as f:
+            for im_ind, index in enumerate(dataset.ids):
+                dets = all_boxes[cls_ind+1][im_ind]
+                if dets == []:
+                    continue
+                # the VOCdevkit expects 1-based indices
+                for k in range(dets.shape[0]):
+                    f.write('{:s} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
+                            format(index[1], dets[k, -1],
+                                   dets[k, 0] + 1, dets[k, 1] + 1,
+                                   dets[k, 2] + 1, dets[k, 3] + 1))
+
+
+def evaluate_detections(box_list, output_dir, dataset):
+    # 预测结果写入data数据集文件夹下results中，分别保存各个类别
+    write_voc_results_file(box_list, dataset)
+    # 进行评估模型
+    do_python_eval(output_dir)
+
+
 def test_net(save_folder, net, cuda, dataset, transform, top_k,
              im_size=300, thresh=0.05):
     num_images = len(dataset)
@@ -410,11 +417,6 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
 
     print('Evaluating detections')
     evaluate_detections(all_boxes, output_dir, dataset)
-
-
-def evaluate_detections(box_list, output_dir, dataset):
-    write_voc_results_file(box_list, dataset)
-    do_python_eval(output_dir)
 
 
 if __name__ == '__main__':
