@@ -215,13 +215,3 @@ def build_ssd(phase, size=300, num_classes=21):
                                      add_extras(extras[str(size)], 1024),
                                      mbox[str(size)], num_classes)
     return SSD(phase, size, base_, extras_, head_, num_classes)
-
-
-# 调试函数
-if __name__ == '__main__':
-    ssd = build_ssd('train')
-    x = torch.randn(1, 3, 300, 300)
-    y = ssd(x)
-    print("Loc    shape: ", y[0].shape)
-    print("Conf   shape: ", y[1].shape)
-    print("Priors shape: ", y[2].shape)
