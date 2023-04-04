@@ -25,37 +25,44 @@ class Detect(Function):
         """
         Args:
             loc_data: (tensor) Loc preds from loc layers
-                Shape: [batch,num_priors*4]
+                Shape: [batch, num_priors*4]
             conf_data: (tensor) Shape: Conf preds from conf layers
-                Shape: [batch*num_priors,num_classes]
+                Shape: [batch*num_priors, num_classes]
             prior_data: (tensor) Prior boxes and variances from priorbox layers
-                Shape: [1,num_priors,4]
+                Shape: [1, num_priors, 4]
         """
-        num = loc_data.size(0)  # batch size
+        num_batch = loc_data.size(0)  # batch size
         num_priors = prior_data.size(0)
-        output = torch.zeros(num, self.num_classes, self.top_k, 5)
-        conf_preds = conf_data.view(num, num_priors,
+        output = torch.zeros(num_batch, self.num_classes, self.top_k, 5)  # 初始化输出
+        conf_preds = conf_data.view(num_batch, num_priors,
                                     self.num_classes).transpose(2, 1)
 
         # Decode predictions into bboxes.
-        for i in range(num):
+        for i in range(num_batch):
+            # 解码loc
             decoded_boxes = decode(loc_data[i], prior_data, self.variance)
-            # For each class, perform nms
+            # 拷贝每个batch内的conf，用于nms
             conf_scores = conf_preds[i].clone()
 
+            # 遍历每一个类别（上面conf_data交换维度）
             for cl in range(1, self.num_classes):
+                # 筛选掉 conf < conf_thresh 的conf
                 c_mask = conf_scores[cl].gt(self.conf_thresh)
                 scores = conf_scores[cl][c_mask]
                 if scores.size(0) == 0:
                     continue
+
+                # 筛选掉 conf < conf_thresh 的loc
                 l_mask = c_mask.unsqueeze(1).expand_as(decoded_boxes)
                 boxes = decoded_boxes[l_mask].view(-1, 4)
+
                 # idx of highest scoring and non-overlapping boxes per class
                 ids, count = nms(boxes, scores, self.nms_thresh, self.top_k)
-                output[i, cl, :count] = \
-                    torch.cat((scores[ids[:count]].unsqueeze(1),
-                               boxes[ids[:count]]), 1)
-        flt = output.contiguous().view(num, -1, 5)
+                output[i, cl, :count] = torch.cat(
+                    (scores[ids[:count]].unsqueeze(1), boxes[ids[:count]]), 1)
+
+        # TODO: 这是？？？
+        flt = output.contiguous().view(num_batch, -1, 5)
         _, idx = flt[:, :, 0].sort(1, descending=True)
         _, rank = idx.sort(1)
         flt[(rank < self.top_k).unsqueeze(-1).expand_as(flt)].fill_(0)

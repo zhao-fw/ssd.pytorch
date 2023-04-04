@@ -80,4 +80,4 @@ if __name__ == "__main__":
     }
     box = PriorBox(voc)
     print('Priors box shape:', box.forward().shape)
-    print('Priors box:\n',box.forward())
+    print('Priors box:\n', box.forward())
