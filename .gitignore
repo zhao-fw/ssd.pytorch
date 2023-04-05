@@ -108,6 +108,8 @@ videos/
 templates/
 data/ssd_dataloader.py
 data/datasets/
+data/coco/
+data/VOCdevkit/
 doc/visualize.py
 read_results.py
 ssd300_120000/
