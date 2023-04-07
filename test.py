@@ -36,7 +36,7 @@ if not os.path.exists(args.save_folder):
 
 
 def test_net(save_folder, net, cuda, testset, transform, thresh):
-    # dump predictions and assoc. ground truth to text file for now
+    # 结果保存位置
     filename = save_folder+'test1.txt'
     num_images = len(testset)
     for i in range(num_images):
@@ -46,6 +46,7 @@ def test_net(save_folder, net, cuda, testset, transform, thresh):
         x = torch.from_numpy(transform(img)[0]).permute(2, 0, 1)
         x = Variable(x.unsqueeze(0))
 
+        # 保存第 i 张图片的真实框
         with open(filename, mode='a') as f:
             f.write('\nGROUND TRUTH FOR: '+img_id+'\n')
             for box in annotation:
@@ -59,27 +60,73 @@ def test_net(save_folder, net, cuda, testset, transform, thresh):
         scale = torch.Tensor([img.shape[1], img.shape[0],
                              img.shape[1], img.shape[0]])
         pred_num = 0
-        for i in range(detections.size(1)):
-            j = 0
-            while detections[0, i, j, 0] >= thresh:
+        for j in range(detections.size(1)):
+            k = 0
+            # 保存第 i 张图片中对于类别 j 的全部 k 个预测框
+            while detections[0, j, k, 0] >= thresh:  # shape[1, classes, boxes, 5] conf + loc
                 if pred_num == 0:
                     with open(filename, mode='a') as f:
                         f.write('PREDICTIONS: '+'\n')
-                score = detections[0, i, j, 0]
-                label_name = labelmap[i-1]
-                pt = (detections[0, i, j, 1:]*scale).cpu().numpy()
+                # 图片预测的实际信息
+                score = detections[0, j, k, 0]
+                label_name = labelmap[j - 1]
+                pt = (detections[0, j, k, 1:] * scale).cpu().numpy()
                 coords = (pt[0], pt[1], pt[2], pt[3])
                 pred_num += 1
                 with open(filename, mode='a') as f:
                     f.write(str(pred_num)+' label: '+label_name+' score: ' +
                             str(score) + ' '+' || '.join(str(c) for c in coords) + '\n')
+                k += 1
+
+
+def test_net2(save_folder, net, cuda, testset, transform, thresh):
+    # dump predictions and assoc. ground truth to text file for now
+    gt_filename = save_folder+'gt.txt'
+    pd_filename = save_folder+'pred.txt'
+    num_images = len(testset)
+    for i in range(num_images):
+        print('Testing image {:d}/{:d}....'.format(i+1, num_images))
+        img = testset.pull_image(i)
+        img_id, annotation = testset.pull_anno(i)
+        x = torch.from_numpy(transform(img)[0]).permute(2, 0, 1)
+        x = Variable(x.unsqueeze(0))
+
+        with open(gt_filename, mode='a') as f:
+            f.write(img_id+' ')
+            for box in annotation:
+                f.write(' '.join(str(b) for b in box)+' ')
+            f.write('\n')
+        if cuda:
+            x = x.cuda()
+
+        y = net(x)      # forward pass
+        detections = y.data
+        # scale each detection back up to the image
+        scale = torch.Tensor([img.shape[1], img.shape[0],
+                             img.shape[1], img.shape[0]])
+        pred_num = 0
+        for i in range(detections.size(1)):
+            j = 0
+            while detections[0, i, j, 0] >= thresh:
+                if pred_num == 0:
+                    with open(pd_filename, mode='a') as f:
+                        f.write(img_id+' ')
+                score = detections[0, i, j, 0]
+                label_name = labelmap[i-1]
+                pt = (detections[0, i, j, 1:]*scale).cpu().numpy()
+                coords = (pt[0], pt[1], pt[2], pt[3])
+                pred_num += 1
+                with open(pd_filename, mode='a') as f:
+                    f.write(str(i-1) + ' ' + str(score) + ' ' +' '.join(str(c) for c in coords)+' ')
                 j += 1
+        with open(pd_filename, mode='a') as f:
+            f.write('\n')
 
 
 def test_voc():
     # load net
-    num_classes = len(VOC_CLASSES) + 1  # +1 background
-    net = build_ssd('test', 300, num_classes)  # initialize SSD
+    num_classes = len(VOC_CLASSES) + 1          # +1 background
+    net = build_ssd('test', 300, num_classes)   # initialize SSD
     net.load_state_dict(torch.load(args.trained_model))
     net.eval()
     print('Finished loading model!')

@@ -107,8 +107,8 @@ def parse_rec(filename):
     for obj in tree.findall('object'):
         obj_struct = {}
         obj_struct['name'] = obj.find('name').text
-        obj_struct['pose'] = obj.find('pose').text
-        obj_struct['truncated'] = int(obj.find('truncated').text)
+        # obj_struct['pose'] = obj.find('pose').text
+        # obj_struct['truncated'] = int(obj.find('truncated').text)
         obj_struct['difficult'] = int(obj.find('difficult').text)
         bbox = obj.find('bndbox')
         obj_struct['bbox'] = [int(bbox.find('xmin').text) - 1,
@@ -381,6 +381,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
     output_dir = get_output_dir('ssd300_120000', set_type)
     det_file = os.path.join(output_dir, 'detections.pkl')
 
+    # 获取第 i 张图片
     for i in range(num_images):
         im, gt, h, w = dataset.pull_item(i)
 
@@ -393,16 +394,20 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
 
         # skip j = 0, because it's the background class
         for j in range(1, detections.size(1)):
+            # j: 每一类，获取所有的预测框
             dets = detections[0, j, :]
+            # 排除NMS抑制的预测框
             mask = dets[:, 0].gt(0.).expand(5, dets.size(0)).t()
             dets = torch.masked_select(dets, mask).view(-1, 5)
             if dets.size(0) == 0:
                 continue
+            # 转化预测框为真实数据
             boxes = dets[:, 1:]
             boxes[:, 0] *= w
             boxes[:, 2] *= w
             boxes[:, 1] *= h
             boxes[:, 3] *= h
+            # 预测分数
             scores = dets[:, 0].cpu().numpy()
             cls_dets = np.hstack((boxes.cpu().numpy(),
                                   scores[:, np.newaxis])).astype(np.float32,

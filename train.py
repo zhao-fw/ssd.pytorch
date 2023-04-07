@@ -47,7 +47,7 @@ parser.add_argument('--weight_decay', default=5e-4, type=float,
                     help='Weight decay for SGD')
 parser.add_argument('--gamma', default=0.1, type=float,
                     help='Gamma update for SGD')
-parser.add_argument('--visdom', default=True, type=str2bool,
+parser.add_argument('--visdom', default=False, type=str2bool,
                     help='Use visdom for loss visualization')
 parser.add_argument('--save_folder', default='weights/',
                     help='Directory for saving checkpoint models')
@@ -82,8 +82,8 @@ def train():
                                 transform=SSDAugmentation(cfg['min_dim'],
                                                           MEANS))
     elif args.dataset == 'VOC':
-        if args.dataset_root == COCO_ROOT:
-            parser.error('Must specify dataset if specifying dataset_root')
+        # if args.dataset_root == COCO_ROOT:
+        #     parser.error('Must specify dataset if specifying dataset_root')
         cfg = voc
         dataset = VOCDetection(root=args.dataset_root,
                                transform=SSDAugmentation(cfg['min_dim'],
@@ -128,6 +128,7 @@ def train():
     # loss counters
     loc_loss = 0
     conf_loss = 0
+    repul_loss = 0
     epoch = 0
     print('Loading the dataset...')
 
@@ -140,13 +141,13 @@ def train():
 
     if args.visdom:
         vis_title = 'SSD.PyTorch on ' + dataset.name
-        vis_legend = ['Loc Loss', 'Conf Loss', 'Total Loss']
+        vis_legend = ['Loc Loss', 'Repul Loss', 'Conf Loss', 'Total Loss']
         iter_plot = create_vis_plot('Iteration', 'Loss', vis_title, vis_legend)
         epoch_plot = create_vis_plot('Epoch', 'Loss', vis_title, vis_legend)
 
     data_loader = data.DataLoader(dataset, args.batch_size,
                                   num_workers=args.num_workers,
-                                  shuffle=False, collate_fn=detection_collate,
+                                  shuffle=True, collate_fn=detection_collate,
                                   pin_memory=True)
     # create batch iterator
     batch_iterator = iter(data_loader)
@@ -155,9 +156,10 @@ def train():
         # 可视化: epoch
         if args.visdom and iteration != 0 and (iteration % epoch_size == 0):
             epoch += 1
-            update_vis_plot(epoch, loc_loss, conf_loss, epoch_plot, 'append', epoch_size)
+            update_vis_plot(epoch, loc_loss, repul_loss, conf_loss, epoch_plot, 'append', epoch_size)
             # reset epoch loss counters
             loc_loss = 0
+            repul_loss = 0
             conf_loss = 0
 
         # 在某些时间段修改学习率
@@ -186,8 +188,8 @@ def train():
         out = net(images)
         # backprop
         optimizer.zero_grad()
-        loss_l, loss_c = criterion(out, targets)
-        loss = loss_l + loss_c
+        loss_l, loss_l_repul, loss_c = criterion(out, targets)
+        loss = loss_l + loss_c + loss_l_repul
         loss.backward()
         optimizer.step()
 
@@ -195,19 +197,24 @@ def train():
         t1 = time.time()
         loc_loss += loss_l.item()
         conf_loss += loss_c.item()
+        repul_loss += loss_l_repul.item()
 
         # 打印输出
         if iteration % 10 == 0:
             print('timer: %.4f sec.' % (t1 - t0))
-            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
+            # print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
+            print('iter ' + repr(iteration) + ' || Loss: %.4f' % (loss.item()) +
+                  ' || conf_loss: %.4f ' % (loss_c.item()) +
+                  ' || smoothl1 loss: %.4f ' % (loss_l.item()) +
+                  ' || repul loss: %.4f ||' % (loss_l_repul.item()), end=' ')
         # 可视化: iteration
         if args.visdom:
-            update_vis_plot(iteration, loss_l.item(), loss_c.item(), iter_plot, 'append')
+            update_vis_plot(iteration, loss_l.item(), loss_l_repul.item(), loss_c.item(), iter_plot, 'append')
             # initialize epoch plot on first iteration
             if iteration == 0:
                 viz.line(
-                    X=torch.zeros((1, 3)).cpu(),
-                    Y=torch.Tensor([loss_l.item(), loss_c.item(),
+                    X=torch.zeros((1, 4)).cpu(),
+                    Y=torch.Tensor([loss_l.item(), loss_l_repul.item(), loss_c.item(),
                                     loss_l.item() + loss_c.item()]).unsqueeze(0).cpu(),
                     win=epoch_plot,
                     update=True
@@ -216,7 +223,7 @@ def train():
         # 暂存模型
         if iteration != 0 and iteration % 5000 == 0:
             print('Saving state, iter:', iteration)
-            torch.save(ssd_net.state_dict(), 'weights/ssd300_COCO_' +
+            torch.save(ssd_net.state_dict(), 'weights/ssd300_VOC_' +
                        repr(iteration) + '.pth')
     # finally save
     torch.save(ssd_net.state_dict(),
@@ -247,7 +254,7 @@ def weights_init(m):
 def create_vis_plot(_xlabel, _ylabel, _title, _legend):
     return viz.line(
         X=torch.zeros((1,)).cpu(),
-        Y=torch.zeros((1, 3)).cpu(),
+        Y=torch.zeros((1, 4)).cpu(),
         opts=dict(
             xlabel=_xlabel,
             ylabel=_ylabel,
@@ -257,10 +264,10 @@ def create_vis_plot(_xlabel, _ylabel, _title, _legend):
     )
 
 
-def update_vis_plot(iteration, loc, conf, window, update_type, epoch_size=1):
+def update_vis_plot(iteration, loc, repul, conf, window, update_type, epoch_size=1):
     viz.line(
-        X=torch.ones((1, 3)).cpu() * iteration,
-        Y=torch.Tensor([loc, conf, loc + conf]).unsqueeze(0).cpu() / epoch_size,
+        X=torch.ones((1, 4)).cpu() * iteration,
+        Y=torch.Tensor([loc, repul, conf, loc + conf]).unsqueeze(0).cpu() / epoch_size,
         win=window,
         update=update_type
     )

@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
+from __future__ import division
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from data import voc as cfg
 from ..box_utils import match, log_sum_exp
+from .repulsion_loss import RepulsionLoss
 
 
 class MultiBoxLoss(nn.Module):
@@ -65,18 +67,22 @@ class MultiBoxLoss(nn.Module):
 
         # 对于每个先验框(default boxes)，找到与其相匹配的目标框(ground truth boxes)
         loc_t = torch.Tensor(num_batch, num_priors, 4)
+        loc_g = torch.Tensor(num_batch, num_priors, 4)
         conf_t = torch.LongTensor(num_batch, num_priors)
         for idx in range(num_batch):
+            predicts = loc_data[idx].data
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, -1].data
             defaults = priors.data
-            match(self.threshold, truths, defaults, self.variance, labels,
-                  loc_t, conf_t, idx)
+            match(self.threshold, predicts, truths, defaults, self.variance, labels,
+                  loc_t, loc_g, conf_t, idx)
         if self.use_gpu:
             loc_t = loc_t.cuda()
+            loc_g = loc_g.cuda()
             conf_t = conf_t.cuda()
         # 使用Variable进行包装目标框(ground truth boxes)
         loc_t = Variable(loc_t, requires_grad=False)
+        loc_g = Variable(loc_g, requires_grad=False)
         conf_t = Variable(conf_t, requires_grad=False)
 
         # 位置损失计算，使用Smooth L1，仅针对正样本进行计算
@@ -86,7 +92,11 @@ class MultiBoxLoss(nn.Module):
         # 2. 抽取正样本进行计算
         loc_p = loc_data[pos_idx].view(-1, 4)
         loc_t = loc_t[pos_idx].view(-1, 4)
+        loc_g = loc_g[pos_idx].view(-1, 4)
+        priors = priors[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, reduction='sum')
+        repul_loss = RepulsionLoss(sigma=0.)
+        loss_l_repul = repul_loss(loc_p, loc_g, priors)
 
         # 置信度损失计算
         # 1. Hard Negative Mining, 需要将所有batch的图片一起找到难负例
@@ -115,5 +125,6 @@ class MultiBoxLoss(nn.Module):
         # α默认设置为1
         N = num_pos.data.sum()
         loss_l /= N
+        loss_l_repul /= N
         loss_c /= N
-        return loss_l, loss_c
+        return loss_l, loss_l_repul, loss_c

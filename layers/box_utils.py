@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
+from __future__ import division
 import torch
+import time
 
 
 def point_form(boxes):
@@ -70,18 +72,41 @@ def jaccard(box_a, box_b):
     return inter / union  # [A,B]
 
 
-def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
+def IoG(box_a, box_b):
+    """Compute the IoG of two sets of boxes.
+    E.g.:
+        A ∩ B / A = A ∩ B / area(A)
+    Args:
+        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
+        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_objects,4]
+    Return:
+        IoG: (tensor) Shape: [num_objects]
+    """
+    inter_xmin = torch.max(box_a[:, 0], box_b[:, 0])
+    inter_ymin = torch.max(box_a[:, 1], box_b[:, 1])
+    inter_xmax = torch.min(box_a[:, 2], box_b[:, 2])
+    inter_ymax = torch.min(box_a[:, 3], box_b[:, 3])
+    Iw = torch.clamp(inter_xmax - inter_xmin, min=0)
+    Ih = torch.clamp(inter_ymax - inter_ymin, min=0)
+    I = Iw * Ih
+    G = (box_a[:, 2] - box_a[:, 0]) * (box_a[:, 3] - box_a[:, 1])
+    return I / G
+
+def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g, conf_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
     corresponding to both confidence and location preds.
+    new update: Match each predict box with the second largest target
     Args:
         threshold: (float) The overlap threshold used when mathing boxes.
+        predicts: (tensor) encoded predict boxes, Shape: [num_obj, num_priors].
         truths: (tensor) Ground truth boxes, Shape: [num_obj, num_priors].
         priors: (tensor) Prior boxes from priorbox layers, Shape: [n_priors,4].
         variances: (tensor) Variances corresponding to each prior coord,
             Shape: [num_priors, 4].
         labels: (tensor) All the class labels for the image, Shape: [num_obj].
-        loc_t: (tensor) Tensor to be filled w/ endcoded location targets.
+        loc_t: (tensor) Tensor to be filled w/ encoded location targets.
+        loc_g: (tensor) Tensor to be filled w/ decoded second largest location targets.
         conf_t: (tensor) Tensor to be filled w/ matched indices for conf preds.
         idx: (int) current batch index
     Return:
@@ -122,6 +147,22 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc_t[idx] = loc    # [num_priors,4] encoded offsets to learn
     conf_t[idx] = conf  # [num_priors] top class label for each prior
 
+    # jaccard index, predict with gt, not anchor with gt
+    predicts = decode(predicts, priors, variances)
+    overlaps = jaccard(
+        truths,
+        predicts
+    )
+#     for i in range(best_truth_idx.size(0)):
+#         overlaps[best_truth_idx[i]][i] = -1
+    # TODO select the second largest IoU target from the same class
+    index = torch.unsqueeze(best_truth_idx, 0)
+    overlaps.scatter_(0, index, -1)
+    second_truth_overlap, second_truth_idx = overlaps.max(0, keepdim=True)
+    second_truth_idx.squeeze_(0)
+    matches_G = truths[second_truth_idx]
+    loc_g[idx] = matches_G
+
 
 def encode(matched, priors, variances):
     """Encode the variances from the priorbox layers into the ground truth boxes
@@ -142,7 +183,7 @@ def encode(matched, priors, variances):
     g_cxcy /= (variances[0] * priors[:, 2:])
     # match wh / prior wh
     g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh) / variances[1]
+    g_wh = torch.log(g_wh + 1e-10) / variances[1]
     # return target for smooth_l1_loss
     return torch.cat([g_cxcy, g_wh], 1)  # [num_priors,4]
 
@@ -166,6 +207,26 @@ def decode(loc, priors, variances):
         priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
+    return boxes
+
+
+def decode_new(loc, priors, variances):
+    """Decode locations from predictions using priors to undo
+    the encoding we did for offset regression at train time.
+    Args:
+        loc (tensor): location predictions for loc layers,
+            Shape: [num_priors,4]
+        priors (tensor): Prior boxes in center-offset form.
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        decoded bounding box predictions
+    """
+    boxes = torch.cat((
+        priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:],
+        priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes[:, :2] = boxes[:, :2] - boxes[:, 2:] / 2
+    boxes[:, 2:] = boxes[:, 2:] + boxes[:, :2]
     return boxes
 
 
