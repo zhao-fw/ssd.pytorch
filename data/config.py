@@ -2,9 +2,9 @@
 import os.path
 
 # gets home dir cross platform
-# HOME = os.path.abspath("D:/workspace/")
+HOME = os.path.abspath("D:/workspace/")
 # HOME = os.path.expanduser("~")
-HOME = os.path.abspath(".")
+# HOME = os.path.abspath(".")
 
 
 # for making bounding boxes pretty
