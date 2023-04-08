@@ -68,7 +68,7 @@ args_eval = {
 }
 
 args_test = {
-    'trained_model': 'weights/ssd_300_VOC0712.pth',  # Trained state_dict file path to open
+    'trained_model': 'weights/ssd300_mAP_77.43_v2.pth',  # Trained state_dict file path to open
     'save_folder': 'eval/',  # Dir to save results
     'visual_threshold': 0.6,  # Final confidence threshold
     'cuda': True,

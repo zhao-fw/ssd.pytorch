@@ -33,18 +33,26 @@ def test_net(save_folder, net, cuda, testset, transform, thresh):
     # 结果保存位置
     filename = save_folder + save_name
     num_images = len(testset)
+
+    # 获取第 i 张图片
     for i in range(num_images):
+        # 类似于从dataset中获取一张图片，只不过这里自己进行处理
         print('Testing image {:d}/{:d}....'.format(i+1, num_images))
-        img = testset.pull_image(i)
         img_id, annotation = testset.pull_anno(i)
-        x = torch.from_numpy(transform(img)[0]).permute(2, 0, 1)
+        img = testset.pull_image(i)
+        img = transform(img)[0]
+        # ---------------------------#
+        img = img[:, :, (2, 1, 0)]
+        # ---------------------------#
+        x = torch.from_numpy(img).permute(2, 0, 1)
         x = Variable(x.unsqueeze(0))
 
         # 保存第 i 张图片的真实框
         with open(filename, mode='a') as f:
             f.write('\nGROUND TRUTH FOR: '+img_id+'\n')
             for box in annotation:
-                f.write('label: '+' || '.join(str(b) for b in box)+'\n')
+                f.write('label: '+' || '.join(str(b) for b in box))
+                f.write(' || '+labelmap[box[4]]+'\n')
         if cuda:
             x = x.cuda()
 
@@ -54,6 +62,7 @@ def test_net(save_folder, net, cuda, testset, transform, thresh):
         scale = torch.Tensor([img.shape[1], img.shape[0],
                              img.shape[1], img.shape[0]])
         pred_num = 0
+        # 对于每一类别
         for j in range(detections.size(1)):
             k = 0
             # 保存第 i 张图片中对于类别 j 的全部 k 个预测框
@@ -80,9 +89,13 @@ def test_net2(save_folder, net, cuda, testset, transform, thresh):
     num_images = len(testset)
     for i in range(num_images):
         print('Testing image {:d}/{:d}....'.format(i+1, num_images))
-        img = testset.pull_image(i)
         img_id, annotation = testset.pull_anno(i)
-        x = torch.from_numpy(transform(img)[0]).permute(2, 0, 1)
+        img = testset.pull_image(i)
+        img = transform(img)[0]
+        # ---------------------------#
+        img = img[:, :, (2, 1, 0)]
+        # ---------------------------#
+        x = torch.from_numpy(img).permute(2, 0, 1)
         x = Variable(x.unsqueeze(0))
 
         with open(gt_filename, mode='a') as f:
@@ -122,22 +135,25 @@ def test_voc():
     num_classes = len(VOC_CLASSES) + 1          # +1 background
     net = build_ssd('test', 300, num_classes)   # initialize SSD
     net.load_state_dict(torch.load(args['trained_model']))
-    # 设置为eval模式，不dropout、BN等
+    # 设置为eval模式，不执行dropout、BN等
     net.eval()
     print('Finished loading model!')
 
     # load data
     testset = VOCDetection(root=args['voc_root'],
                            image_sets=test_dataset,
-                           transform=None,
-                           target_transform=VOCAnnotationTransform())
+                           # 由于test时，不确定数据集，所以具体处理输入图片的细节放在test_net中实现
+                           transform=None)
     if args['cuda']:
         net = net.cuda()
         cudnn.benchmark = True
 
     # evaluation
-    test_net(args['save_folder'], net, args['cuda'], testset,
-             BaseTransform(net.size, dataset_mean),
+    test_net(save_folder=args['save_folder'],
+             net=net,
+             cuda=args['cuda'],
+             testset=testset,
+             transform=BaseTransform(net.size, dataset_mean),
              thresh=args['visual_threshold'])
 
 

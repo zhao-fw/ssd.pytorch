@@ -343,25 +343,26 @@ def evaluate_detections(box_list, output_dir, dataset):
 
 def test_net(save_folder, net, cuda, dataset, transform, top_k,
              im_size=300, thresh=0.05):
+    # 结果保存位置
+    output_dir = get_output_dir('ssd300_120000', set_type)
+    det_file = os.path.join(output_dir, 'detections.pkl')
     num_images = len(dataset)
+
     # all detections are collected into:
     #    all_boxes[cls][image] = N x 5 array of detections in
     #    (x1, y1, x2, y2, score)
     all_boxes = [[[] for _ in range(num_images)]
                  for _ in range(len(labelmap)+1)]
-
     # timers
     _t = {'im_detect': Timer(), 'misc': Timer()}
-    output_dir = get_output_dir('ssd300_120000', set_type)
-    det_file = os.path.join(output_dir, 'detections.pkl')
 
     # 获取第 i 张图片
     for i in range(num_images):
         im, gt, h, w = dataset.pull_item(i)
-
         x = Variable(im.unsqueeze(0))
         if args['cuda']:
             x = x.cuda()
+
         _t['im_detect'].tic()
         detections = net(x).data
         detect_time = _t['im_detect'].toc(average=False)
@@ -403,20 +404,26 @@ if __name__ == '__main__':
     num_classes = len(labelmap) + 1                      # +1 for background
     net = build_ssd('test', 300, num_classes)            # initialize SSD
     net.load_state_dict(torch.load(args['trained_model']))
-    # 设置为eval模式，不dropout、BN等
+    # 设置为eval模式，不执行dropout、BN等
     net.eval()
     print('Finished loading model!')
 
     # load data
-    dataset = VOCDetection(args['voc_root'], eval_data,
-                           BaseTransform(300, dataset_mean),
-                           VOCAnnotationTransform())
+    dataset = VOCDetection(root=args['voc_root'],
+                           image_sets=eval_data,
+                           # 针对voc2007数据集的评估方法，图像预处理为300*300大小，且减去平均值
+                           transform=BaseTransform(300, dataset_mean))
 
     if args['cuda']:
         net = net.cuda()
         cudnn.benchmark = True
 
     # evaluation
-    test_net(args['save_folder'], net, args['cuda'], dataset,
-             BaseTransform(net.size, dataset_mean), args['top_k'], 300,
+    test_net(save_folder=args['save_folder'],
+             net=net,
+             cuda=args['cuda'],
+             dataset=dataset,
+             transform=BaseTransform(net.size, dataset_mean),
+             top_k=args['top_k'],
+             im_size=300,
              thresh=args['confidence_threshold'])

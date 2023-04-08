@@ -75,18 +75,17 @@ class VOCDetection(data.Dataset):
     Arguments:
         root (string): filepath to VOCdevkit folder.
         image_set (string): imageset to use (eg. 'train', 'val', 'test')
-        transform (callable, optional): transformation to perform on the
-            input image
-        target_transform (callable, optional): transformation to perform on the
-            target `annotation`
-            (eg: take in caption string, return tensor of word indices)
+        transform (callable, optional): 转化图片
+        target_transform (callable, optional): 转化注解
         dataset_name (string, optional): which dataset to load
             (default: 'VOC2007')
     """
 
-    def __init__(self, root,
+    def __init__(self,
+                 root,
                  image_sets=[('2007', 'trainval'), ('2012', 'trainval')],
-                 transform=None, target_transform=VOCAnnotationTransform(),
+                 transform=None,
+                 target_transform=VOCAnnotationTransform(),
                  dataset_name='VOC0712'):
         self.root = root
         self.image_set = image_sets
@@ -116,9 +115,11 @@ class VOCDetection(data.Dataset):
         img = cv2.imread(self._imgpath % img_id)
         height, width, channels = img.shape
 
+        # 处理输入的注解，转化为tensor
         if self.target_transform is not None:
             target = self.target_transform(target, width, height)
 
+        # 处理输入图片
         if self.transform is not None:
             target = np.array(target)
             img, boxes, labels = self.transform(img, target[:, :4], target[:, 4])

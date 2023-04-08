@@ -6,8 +6,9 @@ import numpy as np
 
 
 def detection_collate(batch):
-    """Custom collate fn for dealing with batches of images that have a different
-    number of associated object annotations (bounding boxes).
+    """手动将抽取出的样本堆叠起来的函数
+    当一次取出batch个图片时，将所有图片数据组合到一个变量中（本来是list）
+    只有在train时，需要batch，需要使用该函数
 
     Arguments:
         batch: (tuple) A tuple of tensor images and lists of annotations
@@ -34,6 +35,9 @@ def base_transform(image, size, mean):
 
 
 class BaseTransform:
+    """处理图片：resize到(size, size), 减去平均值
+    在eval、test中使用
+    """
     def __init__(self, size, mean):
         self.size = size
         self.mean = np.array(mean, dtype=np.float32)
