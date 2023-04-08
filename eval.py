@@ -9,70 +9,44 @@ import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
+from data import args_eval as args
 from data import VOC_ROOT, VOCAnnotationTransform, VOCDetection, BaseTransform
 from data import VOC_CLASSES as labelmap
-import torch.utils.data as data
-
 from ssd import build_ssd
-
+import torch.utils.data as data
 import sys
 import os
 import time
-import argparse
 import numpy as np
 import pickle
 import cv2
-
 if sys.version_info[0] == 2:
     import xml.etree.cElementTree as ET
 else:
     import xml.etree.ElementTree as ET
 
 
-def str2bool(v):
-    return v.lower() in ("yes", "true", "t", "1")
+YEAR = '2007'
+set_type = 'test'
+devkit_path = args['voc_root'] + 'VOC' + YEAR
+annopath = os.path.join(args['voc_root'], 'VOC2007', 'Annotations', '%s.xml')
+imgpath = os.path.join(args['voc_root'], 'VOC2007', 'JPEGImages', '%s.jpg')
+imgsetpath = os.path.join(args['voc_root'], 'VOC2007', 'ImageSets', 'Main', '{0:s}.txt')
+eval_data = [('2007', set_type)]
+dataset_mean = (104, 117, 123)
 
 
-parser = argparse.ArgumentParser(
-    description='Single Shot MultiBox Detector Evaluation')
-parser.add_argument('--trained_model',
-                    default='weights/ssd300_mAP_77.43_v2.pth', type=str,
-                    help='Trained state_dict file path to open')
-parser.add_argument('--save_folder', default='eval/', type=str,
-                    help='File path to save results')
-parser.add_argument('--confidence_threshold', default=0.01, type=float,
-                    help='Detection confidence threshold')
-parser.add_argument('--top_k', default=5, type=int,
-                    help='Further restrict the number of predictions to parse')
-parser.add_argument('--cuda', default=True, type=str2bool,
-                    help='Use cuda to train model')
-parser.add_argument('--voc_root', default=VOC_ROOT,
-                    help='Location of VOC root directory')
-parser.add_argument('--cleanup', default=True, type=str2bool,
-                    help='Cleanup and remove results files following eval')
-
-args = parser.parse_args()
-
-if not os.path.exists(args.save_folder):
-    os.mkdir(args.save_folder)
-
+if not os.path.exists(args['save_folder']):
+    os.mkdir(args['save_folder'])
 if torch.cuda.is_available():
-    if args.cuda:
+    if args['cuda']:
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
-    if not args.cuda:
+    if not args['cuda']:
         print("WARNING: It looks like you have a CUDA device, but aren't using \
               CUDA.  Run with --cuda for optimal eval speed.")
         torch.set_default_tensor_type('torch.FloatTensor')
 else:
     torch.set_default_tensor_type('torch.FloatTensor')
-
-annopath = os.path.join(args.voc_root, 'VOC2007', 'Annotations', '%s.xml')
-imgpath = os.path.join(args.voc_root, 'VOC2007', 'JPEGImages', '%s.jpg')
-imgsetpath = os.path.join(args.voc_root, 'VOC2007', 'ImageSets', 'Main', '{0:s}.txt')
-YEAR = '2007'
-devkit_path = args.voc_root + 'VOC' + YEAR
-dataset_mean = (104, 117, 123)
-set_type = 'test'
 
 
 class Timer(object):
@@ -386,7 +360,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
         im, gt, h, w = dataset.pull_item(i)
 
         x = Variable(im.unsqueeze(0))
-        if args.cuda:
+        if args['cuda']:
             x = x.cuda()
         _t['im_detect'].tic()
         detections = net(x).data
@@ -428,17 +402,21 @@ if __name__ == '__main__':
     # load net
     num_classes = len(labelmap) + 1                      # +1 for background
     net = build_ssd('test', 300, num_classes)            # initialize SSD
-    net.load_state_dict(torch.load(args.trained_model))
+    net.load_state_dict(torch.load(args['trained_model']))
+    # 设置为eval模式，不dropout、BN等
     net.eval()
     print('Finished loading model!')
+
     # load data
-    dataset = VOCDetection(args.voc_root, [('2007', set_type)],
+    dataset = VOCDetection(args['voc_root'], eval_data,
                            BaseTransform(300, dataset_mean),
                            VOCAnnotationTransform())
-    if args.cuda:
+
+    if args['cuda']:
         net = net.cuda()
         cudnn.benchmark = True
+
     # evaluation
-    test_net(args.save_folder, net, args.cuda, dataset,
-             BaseTransform(net.size, dataset_mean), args.top_k, 300,
-             thresh=args.confidence_threshold)
+    test_net(args['save_folder'], net, args['cuda'], dataset,
+             BaseTransform(net.size, dataset_mean), args['top_k'], 300,
+             thresh=args['confidence_threshold'])
