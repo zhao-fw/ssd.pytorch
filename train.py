@@ -70,24 +70,10 @@ if not os.path.exists(args.save_folder):
 
 def train():
     # 数据集
-    if args.dataset == 'COCO':
-        if args.dataset_root == VOC_ROOT:
-            if not os.path.exists(COCO_ROOT):
-                parser.error('Must specify dataset_root if specifying dataset')
-            print("WARNING: Using default COCO dataset_root because " +
-                  "--dataset_root was not specified.")
-            args.dataset_root = COCO_ROOT
-        cfg = coco
-        dataset = COCODetection(root=args.dataset_root,
-                                transform=SSDAugmentation(cfg['min_dim'],
-                                                          MEANS))
-    elif args.dataset == 'VOC':
-        # if args.dataset_root == COCO_ROOT:
-        #     parser.error('Must specify dataset if specifying dataset_root')
+    if args.dataset == 'VOC':
         cfg = voc
         dataset = VOCDetection(root=args.dataset_root,
-                               transform=SSDAugmentation(cfg['min_dim'],
-                                                         MEANS))
+                               transform=SSDAugmentation(cfg['min_dim'], MEANS))
 
     # 网络
     ssd_net = build_ssd('train', cfg['min_dim'], cfg['num_classes'])
