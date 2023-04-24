@@ -147,7 +147,8 @@ def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g, 
     loc_t[idx] = loc    # [num_priors,4] encoded offsets to learn
     conf_t[idx] = conf  # [num_priors] top class label for each prior
 
-    # jaccard index, predict with gt, not anchor with gt
+    # 计算预测框与GT的IoU ==》 RepGT
+    # 找到除去本身要回归目标的真实框外，与其IoU最大的真实框
     predicts = decode(predicts, priors, variances)
     overlaps = jaccard(
         truths,
@@ -155,7 +156,7 @@ def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g, 
     )
 #     for i in range(best_truth_idx.size(0)):
 #         overlaps[best_truth_idx[i]][i] = -1
-    # TODO select the second largest IoU target from the same class
+    # TODO: 从相同的类别中选取，而不是从全部预测框选取
     index = torch.unsqueeze(best_truth_idx, 0)
     overlaps.scatter_(0, index, -1)
     second_truth_overlap, second_truth_idx = overlaps.max(0, keepdim=True)

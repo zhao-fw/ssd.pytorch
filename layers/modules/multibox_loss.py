@@ -93,8 +93,10 @@ class MultiBoxLoss(nn.Module):
         loc_p = loc_data[pos_idx].view(-1, 4)
         loc_t = loc_t[pos_idx].view(-1, 4)
         loc_g = loc_g[pos_idx].view(-1, 4)
+        # 原loss函数
         priors = priors.unsqueeze(0).expand_as(loc_data)[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, reduction='sum')
+        # 新增repulsion loss
         repul_loss = RepulsionLoss(sigma=0.)
         loss_l_repul = repul_loss(loc_p, loc_g, priors)
 
@@ -115,7 +117,7 @@ class MultiBoxLoss(nn.Module):
         # 3. Confidence Loss Including Positive and Negative Examples
         pos_idx = pos.unsqueeze(2).expand_as(conf_data)  # shape[b, priors, ]
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)  # for conf_data
-        # 提取出所有筛选好的正负样本(预测的和真实的)
+        # 3. 提取出所有筛选好的正负样本(预测的和真实的)
         conf_p = conf_data[(pos_idx+neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos+neg).gt(0)]
         # 计算conf交叉熵: -Sum( (P_i * log(Q_i)) )

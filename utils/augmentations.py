@@ -14,7 +14,8 @@ def intersect(box_a, box_b):
 
 
 def jaccard_numpy(box_a, box_b):
-    """Compute the jaccard overlap of two sets of boxes.  The jaccard overlap
+    """在进行裁剪图片的时候，我们需要考虑裁剪框和图片bbox的iou，这样确保裁剪出的都是有效区域
+    Compute the jaccard overlap of two sets of boxes.  The jaccard overlap
     is simply the intersection over union of two boxes.
     E.g.:
         A ∩ B / A ∪ B = A ∩ B / (area(A) + area(B) - A ∩ B)
@@ -65,11 +66,15 @@ class Lambda(object):
 
 
 class ConvertFromInts(object):
+    """
+    在针对图像进行变化的过程中，需要把图片的 uint8 格式转化为 np.float32，方便计算
+    """
     def __call__(self, image, boxes=None, labels=None):
         return image.astype(np.float32), boxes, labels
 
 
 class SubtractMeans(object):
+    """减去平均值"""
     def __init__(self, mean):
         self.mean = np.array(mean, dtype=np.float32)
 
@@ -79,7 +84,9 @@ class SubtractMeans(object):
         return image.astype(np.float32), boxes, labels
 
 
+# 在图片增强的过程中，有时候需要原图的绝对坐标，确保bbox的变化，有时候需要归一化后的坐标，例如在resize时候
 class ToAbsoluteCoords(object):
+    """归一化 --> 原图 size"""
     def __call__(self, image, boxes=None, labels=None):
         height, width, channels = image.shape
         boxes[:, 0] *= width
@@ -91,6 +98,7 @@ class ToAbsoluteCoords(object):
 
 
 class ToPercentCoords(object):
+    """原图 size --> 归一化"""
     def __call__(self, image, boxes=None, labels=None):
         height, width, channels = image.shape
         boxes[:, 0] /= width
@@ -102,6 +110,7 @@ class ToPercentCoords(object):
 
 
 class Resize(object):
+    """输入的图片大小各异，在输入网络前，需要进行统一的resize"""
     def __init__(self, size=300):
         self.size = size
 
@@ -112,6 +121,10 @@ class Resize(object):
 
 
 class RandomSaturation(object):
+    """饱和度变化
+        饱和度变化需要在 HSV 空间下，改变S的数值
+        图像IPL_DEPTH_32F类型时，S取值范围是0-1
+    """
     def __init__(self, lower=0.5, upper=1.5):
         self.lower = lower
         self.upper = upper
@@ -126,6 +139,10 @@ class RandomSaturation(object):
 
 
 class RandomHue(object):
+    """色调Hue变化
+        Hue变化需要在 HSV 空间下，改变H的数值
+        图像IPL_DEPTH_32F类型时，H取值范围是0-360
+    """
     def __init__(self, delta=18.0):
         assert delta >= 0.0 and delta <= 360.0
         self.delta = delta
@@ -139,6 +156,7 @@ class RandomHue(object):
 
 
 class RandomLightingNoise(object):
+    """图片更换通道，形成的颜色变化"""
     def __init__(self):
         self.perms = ((0, 1, 2), (0, 2, 1),
                       (1, 0, 2), (1, 2, 0),
@@ -153,6 +171,7 @@ class RandomLightingNoise(object):
 
 
 class ConvertColor(object):
+    """在进行亮度，饱和度等变化时，需要把色彩空间转换为HSV"""
     def __init__(self, current='BGR', transform='HSV'):
         self.transform = transform
         self.current = current
@@ -168,6 +187,10 @@ class ConvertColor(object):
 
 
 class RandomContrast(object):
+    """对比度变化
+        图片的对比度变化，只需要在RGB空间下，乘上一个alpha值
+        要设置变化后数值在0~255之间
+    """
     def __init__(self, lower=0.5, upper=1.5):
         self.lower = lower
         self.upper = upper
@@ -183,6 +206,10 @@ class RandomContrast(object):
 
 
 class RandomBrightness(object):
+    """亮度变化
+        图片的亮度变化，只需要在RGB空间下，加上一个delta值
+        要设置变化后数值在0~255之间
+    """
     def __init__(self, delta=32):
         assert delta >= 0.0
         assert delta <= 255.0
@@ -206,7 +233,7 @@ class ToTensor(object):
 
 
 class RandomSampleCrop(object):
-    """Crop
+    """Crop图片随机裁剪
     Arguments:
         img (Image): the image being input during training
         boxes (Tensor): the original bounding boxes in pt form
@@ -310,6 +337,7 @@ class RandomSampleCrop(object):
 
 
 class Expand(object):
+    """设置一个大于原图Size的随机size，填充指定的像素值，然后把原图随机放入这个图片中，实现原图的扩充"""
     def __init__(self, mean):
         self.mean = mean
 
@@ -338,6 +366,7 @@ class Expand(object):
 
 
 class RandomMirror(object):
+    """图片镜像是指图片的左右翻转，实现图片增广"""
     def __call__(self, image, boxes, classes):
         _, width, _ = image.shape
         if random.randint(2):
@@ -348,7 +377,8 @@ class RandomMirror(object):
 
 
 class SwapChannels(object):
-    """Transforms a tensorized image by swapping the channels in the order
+    """针对图片的RGB空间，随机调换各通道的位置，实现不同灯光效果
+    Transforms a tensorized image by swapping the channels in the order
      specified in the swap tuple.
     Args:
         swaps (int triple): final order of channels
@@ -374,6 +404,7 @@ class SwapChannels(object):
 
 
 class PhotometricDistort(object):
+    """图片亮度，对比度和色调变化的方式合并为一个类"""
     def __init__(self):
         self.pd = [
             RandomContrast(),
@@ -398,19 +429,20 @@ class PhotometricDistort(object):
 
 
 class SSDAugmentation(object):
+    """结合所有的图片增广方法形成的类"""
     def __init__(self, size=300, mean=(104, 117, 123)):
         self.mean = mean
         self.size = size
         self.augment = Compose([
-            ConvertFromInts(),
-            ToAbsoluteCoords(),
-            PhotometricDistort(),
-            Expand(self.mean),
-            RandomSampleCrop(),
-            RandomMirror(),
-            ToPercentCoords(),
-            Resize(self.size),
-            SubtractMeans(self.mean)
+            ConvertFromInts(),  # 转化为float32
+            ToAbsoluteCoords(),  # 转化为原图坐标
+            PhotometricDistort(),  # 图片增强方式
+            Expand(self.mean),  # 扩充
+            RandomSampleCrop(),  # 裁剪
+            RandomMirror(),  # 镜像
+            ToPercentCoords(),  # 把原图的box进行归一化
+            Resize(self.size),  # Resize
+            SubtractMeans(self.mean)  # 减去均值
         ])
 
     def __call__(self, img, boxes, labels):

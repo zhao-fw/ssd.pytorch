@@ -19,16 +19,12 @@ else:
 
 
 class VOCAnnotationTransform(object):
-    """Transforms a VOC annotation into a Tensor of bbox coords and label index
-    Initilized with a dictionary lookup of classnames to indexes
+    """把VOC的annotation中bbox的坐标转化为归一化的值;
+    将类别转化为用索引来表示的字典形式；
 
     Arguments:
-        class_to_ind (dict, optional): dictionary lookup of classnames -> indexes
-            (default: alphabetic indexing of VOC's 20 classes)
-        keep_difficult (bool, optional): keep difficult instances or not
-            (default: False)
-        height (int): height
-        width (int): width
+        class_to_ind: (dict)类别的索引字典
+        keep_difficult: 是否保留difficult=1的物体
     """
 
     def __init__(self, class_to_ind=None, keep_difficult=False):
@@ -39,24 +35,30 @@ class VOCAnnotationTransform(object):
     def __call__(self, target, width, height):
         """
         Arguments:
-            target (annotation) : the target annotation to be made usable
-                will be an ET.Element
+            target: xml被读取的一个ET.Element
+            width: 图片宽度
+            height: 图片高度
         Returns:
-            a list containing lists of bounding boxes  [bbox coords, class name]
+            res: list, [bbox coords, class name]
+                -->eg: [[xmin, ymin, xmax, ymax, label_ind],...]
         """
         res = []
         for obj in target.iter('object'):
+            # 判断difficult
             difficult = int(obj.find('difficult').text) == 1
             if not self.keep_difficult and difficult:
                 continue
+
+            # 读取xml中所需的信息
             name = obj.find('name').text.lower().strip()
             bbox = obj.find('bndbox')
 
+            # bbox的表示
             pts = ['xmin', 'ymin', 'xmax', 'ymax']
             bndbox = []
             for i, pt in enumerate(pts):
                 cur_pt = int(bbox.find(pt).text) - 1
-                # scale height or width
+                # 归一化，x/w, y/h
                 cur_pt = cur_pt / width if i % 2 == 0 else cur_pt / height
                 bndbox.append(cur_pt)
             label_idx = self.class_to_ind[name]
@@ -70,7 +72,8 @@ class VOCAnnotationTransform(object):
 class VOCDetection(data.Dataset):
     """VOC Detection Dataset Object
 
-    input is image, target is annotation
+    根据Annotation Transform 和 VOC的数据结构，
+    读取图片， bbox和label，构建VOC的数据集
 
     Arguments:
         root (string): filepath to VOCdevkit folder.
@@ -110,8 +113,9 @@ class VOCDetection(data.Dataset):
 
     def pull_item(self, index):
         img_id = self.ids[index]
-
+        # label 信息
         target = ET.parse(self._annopath % img_id).getroot()
+        # 读取图片信息
         img = cv2.imread(self._imgpath % img_id)
         height, width, channels = img.shape
 
@@ -119,14 +123,18 @@ class VOCDetection(data.Dataset):
         if self.target_transform is not None:
             target = self.target_transform(target, width, height)
 
-        # 处理输入图片
+        # transform， 数据增强
         if self.transform is not None:
             target = np.array(target)
             img, boxes, labels = self.transform(img, target[:, :4], target[:, 4])
-            # to rgb
+
+            # 把图片转化为RGB
             img = img[:, :, (2, 1, 0)]
             # img = img.transpose(2, 0, 1)
+
+            # 把 bbox和label合并为 shape(N, 5)
             target = np.hstack((boxes, np.expand_dims(labels, axis=1)))
+
         return torch.from_numpy(img).permute(2, 0, 1), target, height, width
         # return torch.from_numpy(img), target, height, width
 
