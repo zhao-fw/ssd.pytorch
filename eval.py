@@ -183,7 +183,7 @@ def voc_eval(detpath,
     if not os.path.isdir(cachedir):
         os.mkdir(cachedir)
     cachefile = os.path.join(cachedir, 'annots.pkl')
-    # read list of images
+    # read list of images: recs存储了所有的gt信息：每张图片一个list对象，所有的list对象组成一个dict对象
     with open(imagesetfile, 'r') as f:
         lines = f.readlines()
     imagenames = [x.strip() for x in lines]
@@ -211,7 +211,9 @@ def voc_eval(detpath,
         R = [obj for obj in recs[imagename] if obj['name'] == classname]
         bbox = np.array([x['bbox'] for x in R])
         difficult = np.array([x['difficult'] for x in R]).astype(np.bool)
+        # 是否已经悲预测过
         det = [False] * len(R)
+        # 类别 A 在所有图片中的 gt 的数量和(排除了difficult)
         npos = npos + sum(~difficult)
         class_recs[imagename] = {'bbox': bbox,
                                  'difficult': difficult,
@@ -222,10 +224,13 @@ def voc_eval(detpath,
     with open(detfile, 'r') as f:
         lines = f.readlines()
     if any(lines) == 1:
-
+        # 将lines分解为每个预测[img_id, conf, bbox_1, bbox_2, bbox_3, bbox_4]
         splitlines = [x.strip().split(' ') for x in lines]
+        # 将所有的预测结果的图片id提取
         image_ids = [x[0] for x in splitlines]
+        # 将所有的预测结果的图片conf提取
         confidence = np.array([float(x[1]) for x in splitlines])
+        # 将所有的预测结果的图片bbox提取
         BB = np.array([[float(z) for z in x[2:]] for x in splitlines])
 
         # sort by confidence
@@ -239,10 +244,13 @@ def voc_eval(detpath,
         tp = np.zeros(nd)
         fp = np.zeros(nd)
         for d in range(nd):
+            # 图片id对应的图片的所有gt框（针对该类）
             R = class_recs[image_ids[d]]
+            # 图片id对象的图片的所有预测框（针对该类）
             bb = BB[d, :].astype(float)
             ovmax = -np.inf
             BBGT = R['bbox'].astype(float)
+            # 如果该图片存在该类的gt, 则将当前预测框与该图片该类别的所有的gt计算iou, 取最大的对应的那个gt
             if BBGT.size > 0:
                 # compute overlaps
                 # intersection
@@ -260,8 +268,11 @@ def voc_eval(detpath,
                 ovmax = np.max(overlaps)
                 jmax = np.argmax(overlaps)
 
+            # 如果该预测框与gt计算的最大的iou > 阈值
             if ovmax > ovthresh:
+                # difficul比较难识别,eval时不计入
                 if not R['difficult'][jmax]:
+                    # 是否已经预测过(多个预测框预测同一个gt, 则多预测的为负样本)
                     if not R['det'][jmax]:
                         tp[d] = 1.
                         R['det'][jmax] = 1
@@ -273,9 +284,9 @@ def voc_eval(detpath,
         # compute precision recall
         fp = np.cumsum(fp)
         tp = np.cumsum(tp)
+        # 计算recall = tp / 该类别所有gt框数量(排除difficult)
         rec = tp / float(npos)
-        # avoid divide by zero in case the first detection matches a difficult
-        # ground truth
+        # 防止除数为0, 计算precision = tp / (tp + fp)
         prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
         ap = voc_ap(rec, prec, use_07_metric)
     else:
@@ -296,6 +307,7 @@ def do_python_eval(output_dir='output', use_07=True):
         os.mkdir(output_dir)
     for i, cls in enumerate(labelmap):
         filename = get_voc_results_file_template(set_type, cls)
+        # 计算每一类的mAP
         rec, prec, ap = voc_eval(
            filename, annopath, imgsetpath.format(set_type), cls, cachedir,
            ovthresh=0.5, use_07_metric=use_07_metric)
