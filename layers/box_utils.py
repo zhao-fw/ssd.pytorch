@@ -98,67 +98,75 @@ def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g, 
     corresponding to both confidence and location preds.
     new update: Match each predict box with the second largest target
     Args:
-        threshold: (float) The overlap threshold used when mathing boxes.
-        predicts: (tensor) encoded predict boxes, Shape: [num_obj, num_priors].
-        truths: (tensor) Ground truth boxes, Shape: [num_obj, num_priors].
-        priors: (tensor) Prior boxes from priorbox layers, Shape: [n_priors,4].
-        variances: (tensor) Variances corresponding to each prior coord,
-            Shape: [num_priors, 4].
-        labels: (tensor) All the class labels for the image, Shape: [num_obj].
-        loc_t: (tensor) Tensor to be filled w/ encoded location targets.
-        loc_g: (tensor) Tensor to be filled w/ decoded second largest location targets.
-        conf_t: (tensor) Tensor to be filled w/ matched indices for conf preds.
+        阈值 threshold: (float) The overlap threshold used when mathing boxes.
+        所有预测框 predicts: (tensor) encoded predict boxes, Shape: [num_obj, num_priors].
+        所有真实框 truths: (tensor) Ground truth boxes, Shape: [num_obj, num_priors].
+        所有先验框 priors: (tensor) Prior boxes from priorbox layers, Shape: [n_priors,4].
+        方差 variances: (tensor) Variances corresponding to each prior coord, Shape: [num_priors, 4].
+        所属的类别 labels: (tensor) All the class labels for the image, Shape: [num_obj].
+        loc_t: (tensor) Tensor to be filled with encoded location targets.
+        loc_g: (tensor) Tensor to be filled with decoded second largest location targets.
+        conf_t: (tensor) Tensor to be filled with matched indices for conf preds.
         idx: (int) current batch index
     Return:
         The matched indices corresponding to 1)location and 2)confidence preds.
     """
-    # jaccard index
+    # 计算gt set与pri set的iou, Shape: [gt_nums, pri_nums]
     overlaps = jaccard(
         truths,
         point_form(priors)
     )
     # (Bipartite Matching)
-    # [1,num_objects] the best prior for each ground truth
+    # 为每个 gt框 找到最合适的 pri框, Shape: [gt_nums, 1]
     best_prior_overlap, best_prior_idx = overlaps.max(1, keepdim=True)
-    # [1,num_priors] the best ground truth for each prior
+    # 为每个 pri框 找到最合适的 gt框, Shape: [1, pri_nums]
     best_truth_overlap, best_truth_idx = overlaps.max(0, keepdim=True)
 
-    # squeeze shape
+    # 降维
     best_truth_idx.squeeze_(0)
     best_truth_overlap.squeeze_(0)
     best_prior_idx.squeeze_(1)
     best_prior_overlap.squeeze_(1)
 
-    # 保证每个ground truth box 与某一个prior box 匹配，固定值为 2 > threshold
-    best_truth_overlap.index_fill_(0, best_prior_idx, 2)  # ensure best prior
-    # 保证每一个ground truth 匹配它的都是具有最大IOU的prior
+    # 保证每个 gt框 与 一个pri框 匹配，设iou为固定值
+    best_truth_overlap.index_fill_(0, best_prior_idx, 2)
+    # 设匹配的框id（由于一个pri预测一个gt，防止出现pri与两个gt的iou都很大导致漏匹配）
     for j in range(best_prior_idx.size(0)):
         best_truth_idx[best_prior_idx[j]] = j
 
-    # 提取出所有匹配的ground truth box, Shape: [M,4]
-    matches = truths[best_truth_idx]          # Shape: [num_priors,4]
-    # 提取出所有GT框的类别， Shape:[M]
-    conf = labels[best_truth_idx] + 1         # Shape: [num_priors]
-    # 把 iou < threshold 的框类别设置为 bg,即为0
-    conf[best_truth_overlap < threshold] = 0  # label as background
+    # 每个 pri框 对应的 gt框 的位置信息, Shape: [pri_nums, 5204]
+    matches = truths[best_truth_idx]
+    # 每个 pri框 对应的 gt框 的类别信息, Shape: [pri_nums], +1是因为将0作为背景框
+    conf = labels[best_truth_idx] + 1
+    # 把iou < threshold的框类别设置为背景类别, 即为0
+    conf[best_truth_overlap < threshold] = 0
 
-    # 保存匹配好的loc(需要编码)和conf到loc_t和conf_t中
+    # 保存匹配好的loc(需要编码, 编码后与net输出相比)和conf到loc_t和conf_t中
     loc = encode(matches, priors, variances)
-    loc_t[idx] = loc    # [num_priors,4] encoded offsets to learn
-    conf_t[idx] = conf  # [num_priors] top class label for each prior
+    # idx: 一个batch中的图片id
+    loc_t[idx] = loc
+    conf_t[idx] = conf
 
-    # 计算预测框与GT的IoU ==》 RepGT
-    # 找到除去本身要回归目标的真实框外，与其IoU最大的真实框
+    # 计算 预测框 与 真实框 的IoU --> RepGT，
+    # predicts为net的输出，解码后为框的实际表示
     predicts = decode(predicts, priors, variances)
     overlaps = jaccard(
         truths,
         predicts
     )
-#     for i in range(best_truth_idx.size(0)):
-#         overlaps[best_truth_idx[i]][i] = -1
+
     # TODO: 从相同的类别中选取，而不是从全部预测框选取
     index = torch.unsqueeze(best_truth_idx, 0)
+    # scatter_相当于【根据坐标，把x值填入前置对象中】，排除IOU最大元素
     overlaps.scatter_(0, index, -1)
+    # 排除非同类元素
+    # conf - 1, 每个pri对应的gt框的类别，可以认为是预测框的类别（？）
+    # labels, gt框的类别信息
+    gt_labels = labels.repeat(conf.shape[0], 1).T
+    predicts_labels = (conf - 1).repeat(labels.shape[0], 1)
+    overlaps = torch.where(gt_labels == predicts_labels, overlaps, -torch.ones_like(overlaps))
+    # overlaps[gt_labels != predicts_labels] = -1
+
     second_truth_overlap, second_truth_idx = overlaps.max(0, keepdim=True)
     second_truth_idx.squeeze_(0)
     matches_G = truths[second_truth_idx]
