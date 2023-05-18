@@ -177,7 +177,12 @@ def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g, 
     repbox_loss = torch.tensor(0.)
     # 遍历所有GT框
     for left in range(truths.shape[0]):
-        left_box = predict_boxes[left].unsqueeze(0)
+        left_predict_nums = torch.count_nonzero(predict_objs == left).item()
+        if left_predict_nums == 0:
+            continue
+        random_idx = random.randint(0, left_predict_nums - 1)
+        left_box_idx = torch.where(predict_objs == left)[0][random_idx]
+        left_box = predict_boxes[left_box_idx].unsqueeze(0)
         # 计算Pi与其他所有预测框的IoU
         overlaps = jaccard(
             left_box,
