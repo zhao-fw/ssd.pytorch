@@ -19,12 +19,17 @@ class RepulsionLoss(nn.Module):
     # TODO: 研究smoothln函数
     def smoothln(self, x, sigma=0.):
         self.sigma = 0
-        # 创建sigma张量
-        sigma = torch.full(x.shape, sigma)
-        if x <= sigma:
-            return -torch.log(1 - x + 1e-10)
-        else:
-            return (x - sigma) / (1 - sigma) - torch.log(1 - sigma)
+        # if x <= sigma:
+        #     return -torch.log(1 - x + 1e-10)
+        # else:
+        #     return (x - sigma) / (1 - sigma) - torch.log(1 - sigma)
+        t1 = x <= sigma
+        t2 = x > sigma
+        x1 = -torch.log(1 - x + 1e-10)
+
+        x2 = (x - sigma) / (1 - sigma) - torch.log(torch.ones_like(x) - sigma)
+        x = x1 * t1 + x2 * t2
+        return x
 
     def forward(self, loc_data, ground_data, prior_data):
         decoded_boxes = decode_new(loc_data,
