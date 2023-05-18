@@ -72,14 +72,17 @@ class MultiBoxLoss(nn.Module):
         loc_g = torch.Tensor(num_batch, num_priors, 4)
         conf_t = torch.LongTensor(num_batch, num_priors)
         loss_l_repbox = torch.tensor(0.)
+        loss_l_repbox_nums = 0
         for idx in range(num_batch):
             predicts = loc_data[idx].data
             # predicts_labels = max_predicts[idx].data
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, -1].data
             defaults = priors.data
-            loss_l_repbox += match(self.threshold, predicts, truths, defaults, self.variance, labels, loc_t,
-                                   loc_g, conf_t, idx)
+            tem_a, tem_b = match(self.threshold, predicts, truths, defaults, self.variance, labels, loc_t,
+                                 loc_g, conf_t, idx)
+            loss_l_repbox += tem_a
+            loss_l_repbox_nums += tem_b
         if self.use_gpu:
             loc_t = loc_t.cuda()
             loc_g = loc_g.cuda()
@@ -105,7 +108,7 @@ class MultiBoxLoss(nn.Module):
         # RepGt: 正样本中，找pri对应的IoU第二大gt，后使用该pri偏移后的predict与该gt计算IoG，在计算loss
         # RepBox: 正样本中计算预测框之间的损失
         repul_loss = RepulsionLoss(sigma=0.)
-        loss_l_repul = repul_loss(loc_p, loc_g, priors) + loss_l_repbox
+        loss_l_repul = repul_loss(loc_p, loc_g, priors)
 
         # 置信度损失计算
         # 1. Hard Negative Mining, 需要将所有batch的图片一起找到难负例
@@ -134,6 +137,6 @@ class MultiBoxLoss(nn.Module):
         # α默认设置为1
         N = num_pos.data.sum()
         loss_l /= N
-        loss_l_repul /= N
+        loss_l_repul = loss_l_repul / N + loss_l_repbox / (loss_l_repbox_nums + 1e-10)
         loss_c /= N
         return loss_l, loss_l_repul, loss_c

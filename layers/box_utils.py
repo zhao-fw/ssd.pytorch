@@ -207,7 +207,7 @@ def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g, 
                 repbox_loss += -torch.log(1 - x + 1e-10)
             else:
                 repbox_loss += (x - sigma) / (1 - sigma) - torch.log(torch.tensor(1 - sigma))
-    return repbox_loss / (repbox_nums + 1e-5)
+    return repbox_loss, repbox_nums
 
 
 def encode(matched, priors, variances):
