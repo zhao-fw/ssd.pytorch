@@ -2,6 +2,7 @@
 from __future__ import division
 import torch
 import time
+import random
 
 
 def point_form(boxes):
@@ -121,56 +122,87 @@ def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g, 
     best_prior_overlap, best_prior_idx = overlaps.max(1, keepdim=True)
     # 为每个 pri框 找到最合适的 gt框, Shape: [1, pri_nums]
     best_truth_overlap, best_truth_idx = overlaps.max(0, keepdim=True)
-
     # 降维
     best_truth_idx.squeeze_(0)
     best_truth_overlap.squeeze_(0)
     best_prior_idx.squeeze_(1)
     best_prior_overlap.squeeze_(1)
-
     # 保证每个 gt框 与 一个pri框 匹配，设iou为固定值
     best_truth_overlap.index_fill_(0, best_prior_idx, 2)
     # 设匹配的框id（由于一个pri预测一个gt，防止出现pri与两个gt的iou都很大导致漏匹配）
     for j in range(best_prior_idx.size(0)):
         best_truth_idx[best_prior_idx[j]] = j
-
     # 每个 pri框 对应的 gt框 的位置信息, Shape: [pri_nums, 5204]
     matches = truths[best_truth_idx]
     # 每个 pri框 对应的 gt框 的类别信息, Shape: [pri_nums], +1是因为将0作为背景框
     conf = labels[best_truth_idx] + 1
     # 把iou < threshold的框类别设置为背景类别, 即为0
     conf[best_truth_overlap < threshold] = 0
-
     # 保存匹配好的loc(需要编码, 编码后与net输出相比)和conf到loc_t和conf_t中
     loc = encode(matches, priors, variances)
     # idx: 一个batch中的图片id
     loc_t[idx] = loc
     conf_t[idx] = conf
 
-    # 计算 预测框 与 真实框 的IoU --> RepGT，
+    # 计算 预测框 与 真实框 的IoU --> RepGT
     # predicts为net的输出，解码后为框的实际表示
-    predicts = decode(predicts, priors, variances)
+    predict_boxes = decode(predicts, priors, variances)
     overlaps = jaccard(
         truths,
-        predicts
+        predict_boxes
     )
-
-    # TODO: 从相同的类别中选取，而不是从全部预测框选取
+    # 排除IOU最大元素
+    # index为每个预测框对应的最大GT框的序号
+    # scatter_相当于【根据坐标，把x值填入前置对象中】，即将IoU最大的置为-1
     index = torch.unsqueeze(best_truth_idx, 0)
-    # scatter_相当于【根据坐标，把x值填入前置对象中】，排除IOU最大元素
     overlaps.scatter_(0, index, -1)
     # 排除非同类元素
-    # conf - 1, 每个pri对应的gt框的类别，可以认为是预测框的类别（？）
+    # conf - 1, 每个pri对应的gt框的类别，可以认为是预测框的类别
     # labels, gt框的类别信息
     gt_labels = labels.repeat(conf.shape[0], 1).T
-    predicts_labels = (conf - 1).repeat(labels.shape[0], 1)
-    overlaps = torch.where(gt_labels == predicts_labels, overlaps, -torch.ones_like(overlaps))
-    # overlaps[gt_labels != predicts_labels] = -1
-
+    predict_labels = (conf - 1).repeat(labels.shape[0], 1)
+    overlaps = torch.where(gt_labels == predict_labels, overlaps, -torch.ones_like(overlaps))
+    # 第二次匹配
     second_truth_overlap, second_truth_idx = overlaps.max(0, keepdim=True)
     second_truth_idx.squeeze_(0)
     matches_G = truths[second_truth_idx]
     loc_g[idx] = matches_G
+
+    # 计算 预测框 与 预测框 的IoU --> RepBox
+    # predict_boxes为解码后的位置表示
+    # predict_objs为所有正样本预测框对应的真实框idx，注意是所有正样本
+    predict_boxes = decode(predicts, priors, variances)
+    predict_objs = torch.where(conf - 1 == -1, -torch.ones_like(best_truth_idx), best_truth_idx)
+    repbox_nums = 0
+    repbox_loss = torch.tensor(0.)
+    # 遍历所有GT框
+    for left in range(truths.shape[0]):
+        left_box = predict_boxes[left].unsqueeze(0)
+        # 计算Pi与其他所有预测框的IoU
+        overlaps = jaccard(
+            left_box,
+            predict_boxes
+        )
+        # 从与left预测不同对象的预测框中选择
+        for right in range(truths.shape[0]):
+            if left == right:
+                continue
+            # 分别从类别为left的预测框中和类别为right的预测框中选择，随机采样
+            right_predict_nums = torch.count_nonzero(predict_objs == right).item()
+            if right_predict_nums == 0:
+                continue
+            random_idx = random.randint(0, right_predict_nums - 1)
+            right_box_idx = torch.where(predict_objs == right)[0][random_idx]
+            x = overlaps[0][right_box_idx]
+            if x.item() > 0:
+                repbox_nums += 1
+            # 计算smoothln
+            sigma = 0
+            if x.item() <= sigma:
+                repbox_loss += -torch.log(1 - x + 1e-10)
+            else:
+                repbox_loss += (x - sigma) / (1 - sigma) - torch.log(torch.tensor(1 - sigma))
+    return repbox_loss / (repbox_nums + 1e-5)
 
 
 def encode(matched, priors, variances):

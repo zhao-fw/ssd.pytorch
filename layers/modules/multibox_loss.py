@@ -59,7 +59,9 @@ class MultiBoxLoss(nn.Module):
             targets (tensor): Ground truth boxes and labels for a batch,
                 shape: [batch_size,num_objs,5] (last idx is the label).
         """
-        # 之前的网络输出：data；目标框：target；预测框：prediction
+        # 之前的网络输出：data
+        # 目标框：target
+        # 预测框：prediction
         loc_data, conf_data, priors = predictions
         num_batch = loc_data.size(0)
         priors = priors[:loc_data.size(1), :]
@@ -69,13 +71,15 @@ class MultiBoxLoss(nn.Module):
         loc_t = torch.Tensor(num_batch, num_priors, 4)
         loc_g = torch.Tensor(num_batch, num_priors, 4)
         conf_t = torch.LongTensor(num_batch, num_priors)
+        loss_l_repbox = torch.tensor(0.)
         for idx in range(num_batch):
             predicts = loc_data[idx].data
+            # predicts_labels = max_predicts[idx].data
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, -1].data
             defaults = priors.data
-            match(self.threshold, predicts, truths, defaults, self.variance, labels,
-                  loc_t, loc_g, conf_t, idx)
+            loss_l_repbox += match(self.threshold, predicts, truths, defaults, self.variance, labels, loc_t,
+                                   loc_g, conf_t, idx)
         if self.use_gpu:
             loc_t = loc_t.cuda()
             loc_g = loc_g.cuda()
@@ -86,19 +90,22 @@ class MultiBoxLoss(nn.Module):
         conf_t = Variable(conf_t, requires_grad=False)
 
         # 位置损失计算，使用Smooth L1，仅针对正样本进行计算
-        # 1. 抽取正样本，conf_t > 0 使 conf_t 中每个元素跟0比较得到结果
+        # 1. 抽取正样本，conf_t > 0 使 conf_t 中每个元素跟0比较得到结果，0为背景类别
         pos = conf_t > 0                                        # shape[b, priors]
         pos_idx = pos.unsqueeze(pos.dim()).expand_as(loc_data)  # shape[b, num_priors, 4]
         # 2. 抽取正样本进行计算
         loc_p = loc_data[pos_idx].view(-1, 4)
         loc_t = loc_t[pos_idx].view(-1, 4)
         loc_g = loc_g[pos_idx].view(-1, 4)
-        # 原loss函数
+        # 原loss函数,
+        # Attr: 找正样本(match函数中使用pri和gt做IoU，一个pri对于一个gt），后使用该pri偏移后的predict与对应的gt做loss
         priors = priors.unsqueeze(0).expand_as(loc_data)[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, reduction='sum')
         # 新增repulsion loss
+        # RepGt: 正样本中，找pri对应的IoU第二大gt，后使用该pri偏移后的predict与该gt计算IoG，在计算loss
+        # RepBox: 正样本中计算预测框之间的损失
         repul_loss = RepulsionLoss(sigma=0.)
-        loss_l_repul = repul_loss(loc_p, loc_g, priors)
+        loss_l_repul = repul_loss(loc_p, loc_g, priors) + loss_l_repbox
 
         # 置信度损失计算
         # 1. Hard Negative Mining, 需要将所有batch的图片一起找到难负例
