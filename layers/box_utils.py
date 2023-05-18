@@ -175,38 +175,48 @@ def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g, 
     predict_objs = torch.where(conf - 1 == -1, -torch.ones_like(best_truth_idx), best_truth_idx)
     repbox_nums = 0
     repbox_loss = torch.tensor(0.)
-    # 遍历所有GT框
-    for left in range(truths.shape[0]):
-        left_predict_nums = torch.count_nonzero(predict_objs == left).item()
-        if left_predict_nums == 0:
-            continue
-        random_idx = random.randint(0, left_predict_nums - 1)
-        left_box_idx = torch.where(predict_objs == left)[0][random_idx]
-        left_box = predict_boxes[left_box_idx].unsqueeze(0)
-        # 计算Pi与其他所有预测框的IoU
-        overlaps = jaccard(
-            left_box,
-            predict_boxes
-        )
-        # 从与left预测不同对象的预测框中选择
-        for right in range(truths.shape[0]):
-            if left == right:
+    # 增加遍历所有类别
+    for class_idx in torch.unique(labels):
+        # 遍历所有GT框
+        for left in range(truths.shape[0]):
+            # 如果该真实物体的类别不为当前遍历类别，则退出当前真实物体
+            if labels[left] != class_idx:
                 continue
-            # 分别从类别为left的预测框中和类别为right的预测框中选择，随机采样
-            right_predict_nums = torch.count_nonzero(predict_objs == right).item()
-            if right_predict_nums == 0:
+            # 从对应真实物体为left的预测框中选择，随机采样
+            left_predict_nums = torch.count_nonzero(predict_objs == left).item()
+            if left_predict_nums == 0:
                 continue
-            random_idx = random.randint(0, right_predict_nums - 1)
-            right_box_idx = torch.where(predict_objs == right)[0][random_idx]
-            x = overlaps[0][right_box_idx]
-            if x.item() > 0:
-                repbox_nums += 1
-            # 计算smoothln
-            sigma = 0
-            if x.item() <= sigma:
-                repbox_loss += -torch.log(1 - x + 1e-10)
-            else:
-                repbox_loss += (x - sigma) / (1 - sigma) - torch.log(torch.tensor(1 - sigma))
+            random_idx = random.randint(0, left_predict_nums - 1)
+            left_box_idx = torch.where(predict_objs == left)[0][random_idx]
+            left_box = predict_boxes[left_box_idx].unsqueeze(0)
+            # 计算Pi与其他所有预测框的IoU
+            overlaps = jaccard(
+                left_box,
+                predict_boxes
+            )
+            # 从与left预测不同对象的预测框中选择
+            for right in range(truths.shape[0]):
+                # 如果该真实物体的类别不为当前遍历类别，则退出当前真实物体
+                if labels[right] != class_idx:
+                    continue
+                # 如果左右为相同真实物体
+                if left == right:
+                    continue
+                # 从对应真实物体为right的预测框中选择，随机采样
+                right_predict_nums = torch.count_nonzero(predict_objs == right).item()
+                if right_predict_nums == 0:
+                    continue
+                random_idx = random.randint(0, right_predict_nums - 1)
+                right_box_idx = torch.where(predict_objs == right)[0][random_idx]
+                x = overlaps[0][right_box_idx]
+                if x.item() > 0:
+                    repbox_nums += 1
+                # 计算smoothln
+                sigma = 0
+                if x.item() <= sigma:
+                    repbox_loss += -torch.log(1 - x + 1e-10)
+                else:
+                    repbox_loss += (x - sigma) / (1 - sigma) - torch.log(torch.tensor(1 - sigma))
     return repbox_loss, repbox_nums
 
 
