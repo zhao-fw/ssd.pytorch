@@ -59,6 +59,8 @@ class Detect(nn.Module):
 
                 # idx of highest scoring and non-overlapping boxes per class
                 ids, count = nms(boxes, scores, self.nms_thresh, self.top_k)
+                # 修改阈值为1，观察未使用NMS的效果
+                # ids, count = nms(boxes, scores, 1, self.top_k)
                 output[i, cl, :count] = torch.cat(
                     (scores[ids[:count]].unsqueeze(1), boxes[ids[:count]]), 1)
 
