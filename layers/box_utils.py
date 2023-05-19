@@ -93,7 +93,7 @@ def IoG(box_a, box_b):
     G = (box_a[:, 2] - box_a[:, 0]) * (box_a[:, 3] - box_a[:, 1])
     return I / G
 
-def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g, conf_t, idx):
+def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g1, loc_g2, conf_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
     corresponding to both confidence and location preds.
@@ -151,6 +151,8 @@ def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g, 
         truths,
         predict_boxes
     )
+    # 观察IoU的内容
+    # torch.count_nonzero(overlaps != -1)
     # 排除IOU最大元素
     # index为每个预测框对应的最大GT框的序号
     # scatter_相当于【根据坐标，把x值填入前置对象中】，即将IoU最大的置为-1
@@ -159,14 +161,26 @@ def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g, 
     # 排除非同类元素
     # conf - 1, 每个pri对应的gt框的类别，可以认为是预测框的类别
     # labels, gt框的类别信息
-    gt_labels = labels.repeat(conf.shape[0], 1).T
-    predict_labels = (conf - 1).repeat(labels.shape[0], 1)
-    overlaps = torch.where(gt_labels == predict_labels, overlaps, -torch.ones_like(overlaps))
+    # gt_labels = labels.repeat(conf.shape[0], 1).T
+    # predict_labels = (conf - 1).repeat(labels.shape[0], 1)
+    # overlaps = torch.where(gt_labels == predict_labels, overlaps, -torch.ones_like(overlaps))
     # 第二次匹配
     second_truth_overlap, second_truth_idx = overlaps.max(0, keepdim=True)
+    # 排除第二次匹配内容
+    overlaps.scatter_(0, second_truth_idx, -1)
+    # 第三次匹配
+    third_truth_overlap, third_truth_idx = overlaps.max(0, keepdim=True)
+    third_truth_idx = torch.where(third_truth_overlap > 0.8 * second_truth_overlap,
+                                  third_truth_overlap,
+                                  second_truth_idx)
+    # 选择对应的真实框坐标信息
     second_truth_idx.squeeze_(0)
-    matches_G = truths[second_truth_idx]
-    loc_g[idx] = matches_G
+    matches_G1 = truths[second_truth_idx]
+    loc_g1[idx] = matches_G1
+    third_truth_idx.squeeze_(0)
+    matches_G2 = truths[third_truth_idx]
+    loc_g2[idx] = matches_G2
+
 
     # 计算 预测框 与 预测框 的IoU --> RepBox
     # predict_boxes为解码后的位置表示
