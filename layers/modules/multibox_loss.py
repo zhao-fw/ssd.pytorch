@@ -137,6 +137,6 @@ class MultiBoxLoss(nn.Module):
         # α默认设置为1
         N = num_pos.data.sum()
         loss_l /= N
-        loss_l_repul = 0.5 * loss_l_repul / N + 0.5 * loss_l_repbox / (loss_l_repbox_nums + 1e-10)
+        loss_l_repul = loss_l_repul / N + loss_l_repbox / (loss_l_repbox_nums + 1e-10)
         loss_c /= N
         return loss_l, loss_l_repul, loss_c
