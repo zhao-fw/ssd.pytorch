@@ -170,8 +170,8 @@ def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g1,
     overlaps.scatter_(0, second_truth_idx, -1)
     # 第三次匹配
     third_truth_overlap, third_truth_idx = overlaps.max(0, keepdim=True)
-    third_truth_idx = torch.where(third_truth_overlap > 0.8 * second_truth_overlap,
-                                  third_truth_overlap,
+    third_truth_idx = torch.where((third_truth_overlap > 0) & (third_truth_overlap > (0.8 * second_truth_overlap)),
+                                  third_truth_idx,
                                   second_truth_idx)
     # 选择对应的真实框坐标信息
     second_truth_idx.squeeze_(0)
@@ -180,7 +180,6 @@ def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g1,
     third_truth_idx.squeeze_(0)
     matches_G2 = truths[third_truth_idx]
     loc_g2[idx] = matches_G2
-
 
     # 计算 预测框 与 预测框 的IoU --> RepBox
     # predict_boxes为解码后的位置表示
